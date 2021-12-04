@@ -11,10 +11,10 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using AOT;
+using System.IO;
 
 namespace HybridWebSocket
 {
-
     /// <summary>
     /// Handler for WebSocket Open event.
     /// </summary>
@@ -73,6 +73,7 @@ namespace HybridWebSocket
     /// </summary>
     public interface IWebSocket
     {
+        bool IsAlive { get; }
         /// <summary>
         /// Open WebSocket connection
         /// </summary>
@@ -89,12 +90,12 @@ namespace HybridWebSocket
         /// Send binary data over the socket.
         /// </summary>
         /// <param name="data">Payload data.</param>
-        void Send(byte[] data);
-
+        void Send(byte[] data, int length);
         /// <summary>
         /// Return WebSocket connection state.
         /// </summary>
         /// <returns>The state.</returns>
+        /// 
         WebSocketState GetState();
 
         /// <summary>
@@ -159,7 +160,7 @@ namespace HybridWebSocket
         public static WebSocketException GetErrorMessageFromCode(int errorCode, Exception inner)
         {
 
-            switch(errorCode)
+            switch (errorCode)
             {
 
                 case -1: return new WebSocketUnexpectedException("WebSocket instance not found.", inner);
@@ -204,9 +205,9 @@ namespace HybridWebSocket
     /// </summary>
     public class WebSocketUnexpectedException : WebSocketException
     {
-        public WebSocketUnexpectedException(){}
-        public WebSocketUnexpectedException(string message) : base(message){}
-        public WebSocketUnexpectedException(string message, Exception inner) : base(message, inner) {}
+        public WebSocketUnexpectedException() { }
+        public WebSocketUnexpectedException(string message) : base(message) { }
+        public WebSocketUnexpectedException(string message, Exception inner) : base(message, inner) { }
     }
 
     /// <summary>
@@ -229,7 +230,7 @@ namespace HybridWebSocket
         public WebSocketInvalidStateException(string message, Exception inner) : base(message, inner) { }
     }
 
-#if UNITY_WEBGL && !UNITY_EDITOR
+#if  UNITY_WEBGL && !UNITY_EDITOR
     /// <summary>
     /// WebSocket class bound to JSLIB.
     /// </summary>
@@ -285,6 +286,16 @@ namespace HybridWebSocket
 
         }
 
+        public bool IsAlive
+        {
+            get
+            {
+                bool _isAlive = false;
+                if (GetState() == WebSocketState.Open) _isAlive = true;
+                return _isAlive;
+            }
+        }
+
         /// <summary>
         /// Destructor - notifies WebSocketFactory about it to remove JSLIB references
         /// Releases unmanaged resources and performs other cleanup operations before the
@@ -338,15 +349,16 @@ namespace HybridWebSocket
         /// Send binary data over the socket.
         /// </summary>
         /// <param name="data">Payload data.</param>
-        public void Send(byte[] data)
-        {
 
-            int ret = WebSocketSend(this.instanceId, data, data.Length);
+        public void Send(byte[] data, int length)
+        {
+            int ret = WebSocketSend(this.instanceId, data, length);
 
             if (ret < 0)
                 throw WebSocketHelpers.GetErrorMessageFromCode(ret, null);
-
         }
+
+
 
         /// <summary>
         /// Return WebSocket connection state.
@@ -455,7 +467,17 @@ namespace HybridWebSocket
         /// <summary>
         /// The WebSocketSharp instance.
         /// </summary>
-        protected WebSocketSharp.WebSocket ws;
+        public WebSocketSharp.WebSocket ws;
+
+        public bool IsAlive
+        {
+            get
+            {
+                bool _isAlive = false;
+                if (ws != null) _isAlive = ws.IsAlive;
+                return _isAlive;
+            }
+        }
 
         /// <summary>
         /// WebSocket constructor.
@@ -466,7 +488,7 @@ namespace HybridWebSocket
 
             try
             {
-                   
+
                 // Create WebSocket instance
                 this.ws = new WebSocketSharp.WebSocket(url);
 
@@ -493,7 +515,7 @@ namespace HybridWebSocket
                 this.ws.OnClose += (sender, ev) =>
                 {
                     this.OnClose?.Invoke(
-                        WebSocketHelpers.ParseCloseCodeEnum( (int)ev.Code )
+                        WebSocketHelpers.ParseCloseCodeEnum((int)ev.Code)
                     );
                 };
 
@@ -558,23 +580,26 @@ namespace HybridWebSocket
         /// Send binary data over the socket.
         /// </summary>
         /// <param name="data">Payload data.</param>
-        public void Send(byte[] data)
-        {
 
+        public void Send(byte[] data, int length)
+        {
             // Check state
             if (this.ws.ReadyState != WebSocketSharp.WebSocketState.Open)
                 throw new WebSocketInvalidStateException("WebSocket is not in open state.");
 
             try
             {
-                this.ws.Send(data);
+                using (System.IO.MemoryStream stream = new System.IO.MemoryStream(data, 0, length))
+                {
+                    this.ws.Send(stream, length);
+                }
             }
             catch (Exception e)
             {
                 throw new WebSocketUnexpectedException("Failed to send message.", e);
             }
-
         }
+
 
         /// <summary>
         /// Return WebSocket connection state.
@@ -603,6 +628,15 @@ namespace HybridWebSocket
 
         }
 
+
+        public void EnableSSL() 
+        {
+            ws.SslConfiguration.EnabledSslProtocols = System.Security.Authentication.SslProtocols.Default |
+                                                                System.Security.Authentication.SslProtocols.Tls11 |
+                                                                System.Security.Authentication.SslProtocols.Tls12 |
+                                                                System.Security.Authentication.SslProtocols.Ssl3;
+        }
+       
     }
 #endif
 
